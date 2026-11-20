@@ -26,7 +26,6 @@ private val LightColorScheme = lightColorScheme(
     primaryContainer = ExpressivePrimaryContainer,
     onPrimaryContainer = ExpressiveOnPrimaryContainer,
     secondary = ExpressiveSecondaryContainer,
-    onPrimaryContainer = ExpressiveOnPrimaryContainer,
     tertiary = ExpressiveTertiary,
     tertiaryContainer = ExpressiveTertiaryContainer,
     background = ExpressiveBackground,
