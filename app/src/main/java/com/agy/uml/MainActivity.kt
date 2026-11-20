@@ -5,8 +5,12 @@ import android.content.Context
 import android.content.Intent
 import android.content.ServiceConnection
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
+import android.os.Environment
 import android.os.IBinder
+import android.provider.OpenableColumns
+import android.provider.Settings
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -42,6 +46,11 @@ class MainActivity : ComponentActivity() {
     private var sessionService: UmlSessionService? = null
     private var isBound by mutableStateOf(false)
 
+    // Activity-level observable state for RootFS detection and storage access
+    private var rootfsPath by mutableStateOf<String?>(null)
+    private var importProgress by mutableStateOf<Float?>(null)
+    private var hasAllFilesAccess by mutableStateOf(false)
+
     private val serviceConnection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName?, binder: IBinder?) {
             val localBinder = binder as UmlSessionService.LocalBinder
@@ -67,6 +76,8 @@ class MainActivity : ComponentActivity() {
             AssetInstaller.ensureBinariesInstalled(this@MainActivity)
         }
 
+        scanForRootfs()
+
         setContent {
             UmlAndroidTheme {
                 val service = sessionService
@@ -75,43 +86,78 @@ class MainActivity : ComponentActivity() {
 
                 var currentTab by remember { mutableStateOf(ScreenTab.DASHBOARD) }
                 var allocatedMemoryMb by remember { mutableIntStateOf(2048) }
-                var rootfsPath by remember { mutableStateOf<String?>(null) }
+
                 val coroutineScope = rememberCoroutineScope()
 
-                // Check standard paths for debian-docker.ext4
-                LaunchedEffect(Unit) {
-                    val candidatePaths = listOf(
-                        File(filesDir, "debian-docker.ext4"),
-                        File(getExternalFilesDir(null), "debian-docker.ext4"),
-                        File("/storage/emulated/0/Download/Termux/uml-android/debian-docker.ext4"),
-                        File("/storage/emulated/0/Download/debian-docker.ext4")
-                    )
-                    val found = candidatePaths.firstOrNull { it.exists() && it.length() > 0 }
-                    if (found != null) {
-                        rootfsPath = found.absolutePath
-                    }
-                }
-
-                // File picker launcher for .ext4 images
+                // File picker launcher with atomic copy & live progress tracking
                 val rootfsPickerLauncher = rememberLauncherForActivityResult(
                     contract = ActivityResultContracts.OpenDocument()
                 ) { uri: Uri? ->
                     uri?.let { selectedUri ->
                         coroutineScope.launch(Dispatchers.IO) {
                             try {
-                                val targetFile = File(filesDir, "debian-docker.ext4")
-                                contentResolver.openInputStream(selectedUri)?.use { input ->
-                                    FileOutputStream(targetFile).use { output ->
-                                        input.copyTo(output)
+                                var totalSize = -1L
+                                contentResolver.query(selectedUri, null, null, null, null)?.use { cursor ->
+                                    val sizeIndex = cursor.getColumnIndex(OpenableColumns.SIZE)
+                                    if (sizeIndex != -1 && cursor.moveToFirst()) {
+                                        totalSize = cursor.getLong(sizeIndex)
                                     }
                                 }
-                                withContext(Dispatchers.Main) {
-                                    rootfsPath = targetFile.absolutePath
-                                    Toast.makeText(this@MainActivity, "Disk image imported successfully!", Toast.LENGTH_SHORT).show()
+
+                                val partFile = File(filesDir, "debian-docker.ext4.part")
+                                val finalFile = File(filesDir, "debian-docker.ext4")
+
+                                if (partFile.exists()) partFile.delete()
+
+                                contentResolver.openInputStream(selectedUri)?.use { input ->
+                                    FileOutputStream(partFile).use { output ->
+                                        val buffer = ByteArray(256 * 1024)
+                                        var bytesCopied = 0L
+                                        var bytesRead: Int
+                                        while (input.read(buffer).also { bytesRead = it } != -1) {
+                                            output.write(buffer, 0, bytesRead)
+                                            bytesCopied += bytesRead
+                                            if (totalSize > 0) {
+                                                withContext(Dispatchers.Main) {
+                                                    importProgress = bytesCopied.toFloat() / totalSize.toFloat()
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+
+                                if (partFile.length() > 500 * 1024 * 1024L) {
+                                    if (finalFile.exists()) finalFile.delete()
+                                    partFile.renameTo(finalFile)
+                                    withContext(Dispatchers.Main) {
+                                        importProgress = null
+                                        scanForRootfs()
+                                        Toast.makeText(
+                                            this@MainActivity,
+                                            "Disk image imported successfully (${finalFile.length() / (1024 * 1024)} MB)!",
+                                            Toast.LENGTH_SHORT
+                                        ).show()
+                                    }
+                                } else {
+                                    val brokenSizeMb = partFile.length() / (1024 * 1024)
+                                    partFile.delete()
+                                    withContext(Dispatchers.Main) {
+                                        importProgress = null
+                                        Toast.makeText(
+                                            this@MainActivity,
+                                            "Error: Selected file is incomplete ($brokenSizeMb MB). Full Debian image is ~1.3 GB.",
+                                            Toast.LENGTH_LONG
+                                        ).show()
+                                    }
                                 }
                             } catch (e: Exception) {
                                 withContext(Dispatchers.Main) {
-                                    Toast.makeText(this@MainActivity, "Failed to import image: ${e.message}", Toast.LENGTH_LONG).show()
+                                    importProgress = null
+                                    Toast.makeText(
+                                        this@MainActivity,
+                                        "Failed to import image: ${e.message}",
+                                        Toast.LENGTH_LONG
+                                    ).show()
                                 }
                             }
                         }
@@ -160,20 +206,42 @@ class MainActivity : ComponentActivity() {
                                     status = status,
                                     allocatedMemoryMb = allocatedMemoryMb,
                                     rootfsPath = rootfsPath,
+                                    importProgress = importProgress,
+                                    hasAllFilesAccess = hasAllFilesAccess,
+                                    onRequestStoragePermission = {
+                                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                                            try {
+                                                val intent = Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION).apply {
+                                                    data = Uri.parse("package:$packageName")
+                                                }
+                                                startActivity(intent)
+                                            } catch (e: Exception) {
+                                                startActivity(Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION))
+                                            }
+                                        }
+                                    },
                                     onMemoryChange = { allocatedMemoryMb = it },
                                     onSelectRootfs = {
                                         rootfsPickerLauncher.launch(arrayOf("*/*"))
                                     },
                                     onStartKernel = {
+                                        val targetRootfs = rootfsPath
+                                        if (targetRootfs == null || !File(targetRootfs).exists() || File(targetRootfs).length() < 500 * 1024 * 1024L) {
+                                            Toast.makeText(
+                                                this@MainActivity,
+                                                "Cannot boot: RootFS image is missing or incomplete (<500MB)!",
+                                                Toast.LENGTH_LONG
+                                            ).show()
+                                            return@DashboardScreen
+                                        }
+
                                         val filesDir = filesDir
                                         val libDir = File(applicationInfo.nativeLibraryDir)
 
-                                        // Resolve binaries prioritizing SELinux-executable nativeLibraryDir
                                         val kernelFile = File(libDir, "liblinux.so").takeIf { it.exists() } ?: File(filesDir, "linux")
                                         val stubExeFile = File(libDir, "libstub_exe.so").takeIf { it.exists() } ?: File(filesDir, "stub_exe")
                                         val umnetFile = File(libDir, "libumnet.so").takeIf { it.exists() } ?: File(filesDir, "umnet")
                                         val passtFile = File(libDir, "libpasst.so").takeIf { it.exists() } ?: File(filesDir, "passt")
-                                        val targetRootfs = rootfsPath ?: File(filesDir, "debian-docker.ext4").absolutePath
 
                                         val config = UmlConfiguration(
                                             memoryMb = allocatedMemoryMb,
@@ -203,6 +271,9 @@ class MainActivity : ComponentActivity() {
                                         status = status,
                                         allocatedMemoryMb = allocatedMemoryMb,
                                         rootfsPath = rootfsPath,
+                                        importProgress = importProgress,
+                                        hasAllFilesAccess = hasAllFilesAccess,
+                                        onRequestStoragePermission = {},
                                         onMemoryChange = {},
                                         onSelectRootfs = {},
                                         onStartKernel = {},
@@ -234,6 +305,36 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        scanForRootfs()
+    }
+
+    private fun scanForRootfs() {
+        hasAllFilesAccess = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            Environment.isExternalStorageManager()
+        } else {
+            true
+        }
+
+        // Clean up any corrupt or truncated partial downloads (< 500 MB) from private filesDir
+        val localFile = File(filesDir, "debian-docker.ext4")
+        if (localFile.exists() && localFile.length() < 500 * 1024 * 1024L) {
+            localFile.delete()
+        }
+
+        val candidatePaths = listOf(
+            File(filesDir, "debian-docker.ext4"),
+            File(getExternalFilesDir(null), "debian-docker.ext4"),
+            File("/storage/emulated/0/Download/Termux/uml-android/debian-docker.ext4"),
+            File("/storage/emulated/0/Download/debian-docker.ext4"),
+            File("/sdcard/Download/Termux/uml-android/debian-docker.ext4"),
+            File("/sdcard/Download/debian-docker.ext4")
+        )
+        val found = candidatePaths.firstOrNull { it.exists() && it.canRead() && it.length() > 500 * 1024 * 1024L }
+        rootfsPath = found?.absolutePath
     }
 
     override fun onDestroy() {

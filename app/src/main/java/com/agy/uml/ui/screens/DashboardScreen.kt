@@ -30,6 +30,9 @@ fun DashboardScreen(
     status: UmlStatus,
     allocatedMemoryMb: Int,
     rootfsPath: String?,
+    importProgress: Float?,
+    hasAllFilesAccess: Boolean,
+    onRequestStoragePermission: () -> Unit,
     onMemoryChange: (Int) -> Unit,
     onSelectRootfs: () -> Unit,
     onStartKernel: () -> Unit,
@@ -38,7 +41,10 @@ fun DashboardScreen(
     onOpenGraphical: () -> Unit
 ) {
     val scrollState = rememberScrollState()
-    val isRootfsValid = rootfsPath != null && File(rootfsPath).exists() && File(rootfsPath).length() > 0
+    val rootfsFile = rootfsPath?.let { File(it) }
+    // An ext4 rootfs must be at least 500 MB (full image is ~1.3 GB)
+    val isRootfsValid = rootfsFile != null && rootfsFile.exists() && rootfsFile.length() > 500 * 1024 * 1024L
+    val isRootfsTruncated = rootfsFile != null && rootfsFile.exists() && rootfsFile.length() in 1 until (500 * 1024 * 1024L)
 
     Scaffold(
         topBar = {
@@ -193,19 +199,24 @@ fun DashboardScreen(
                                 onClick = onStartKernel,
                                 modifier = Modifier.fillMaxWidth(),
                                 shape = RoundedCornerShape(16.dp),
-                                enabled = status !is UmlStatus.Starting && isRootfsValid
+                                enabled = status !is UmlStatus.Starting && isRootfsValid && importProgress == null
                             ) {
                                 Icon(Icons.Default.PlayArrow, contentDescription = null)
                                 Spacer(modifier = Modifier.width(8.dp))
-                                Text("Boot Linux Session")
+                                Text(
+                                    if (importProgress != null) "Importing Image..."
+                                    else if (!isRootfsValid) "RootFS Image Required"
+                                    else "Boot Linux Session"
+                                )
                             }
                         }
                     }
 
-                    if (!isRootfsValid && status is UmlStatus.Stopped) {
+                    if (!isRootfsValid && status is UmlStatus.Stopped && importProgress == null) {
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
-                            text = "⚠️ Select a valid RootFS (.ext4) image below to boot.",
+                            text = if (isRootfsTruncated) "⚠️ Current image file is truncated (${rootfsFile?.length()?.div(1024 * 1024)} MB). Full image is 1.3 GB."
+                            else "⚠️ Please select or link the 1.3 GB debian-docker.ext4 image below.",
                             fontSize = 12.sp,
                             color = MaterialTheme.colorScheme.error
                         )
@@ -218,7 +229,8 @@ fun DashboardScreen(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(24.dp),
                 colors = CardDefaults.cardColors(
-                    containerColor = if (isRootfsValid) MaterialTheme.colorScheme.surfaceVariant else MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.3f)
+                    containerColor = if (isRootfsValid) MaterialTheme.colorScheme.surfaceVariant
+                    else MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.3f)
                 )
             ) {
                 Column(modifier = Modifier.padding(20.dp)) {
@@ -235,7 +247,7 @@ fun DashboardScreen(
                             )
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
-                                text = "RootFS Block Device (ubda)",
+                                text = "RootFS Image (ubda)",
                                 style = MaterialTheme.typography.titleMedium
                             )
                         }
@@ -244,42 +256,82 @@ fun DashboardScreen(
                             onClick = onSelectRootfs,
                             shape = RoundedCornerShape(12.dp),
                             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
-                            enabled = status is UmlStatus.Stopped
+                            enabled = status is UmlStatus.Stopped && importProgress == null
                         ) {
                             Icon(Icons.Default.FolderOpen, contentDescription = null, modifier = Modifier.size(16.dp))
                             Spacer(modifier = Modifier.width(4.dp))
-                            Text("Select Image", fontSize = 12.sp)
+                            Text("Import Image", fontSize = 12.sp)
                         }
                     }
 
                     Spacer(modifier = Modifier.height(10.dp))
 
-                    if (isRootfsValid && rootfsPath != null) {
-                        val file = File(rootfsPath)
-                        val sizeMb = file.length() / (1024 * 1024)
+                    if (importProgress != null) {
+                        LinearProgressIndicator(
+                            progress = { importProgress },
+                            modifier = Modifier.fillMaxWidth().height(8.dp).clip(RoundedCornerShape(4.dp))
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
                         Text(
-                            text = file.name,
+                            text = "Importing RootFS... ${(importProgress * 100).toInt()}%",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    } else if (isRootfsValid && rootfsFile != null) {
+                        val sizeMb = rootfsFile.length() / (1024 * 1024)
+                        Text(
+                            text = rootfsFile.name,
                             fontWeight = FontWeight.Bold,
                             fontFamily = FontFamily.Monospace,
                             fontSize = 14.sp
                         )
                         Text(
-                            text = "Size: ${sizeMb} MB • Path: $rootfsPath",
+                            text = "Size: ${sizeMb} MB (Valid ext4 filesystem)",
                             fontSize = 12.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                            color = Color(0xFF2E7D32),
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Text(
+                            text = "Path: ${rootfsFile.absolutePath}",
+                            fontSize = 11.sp,
+                            fontFamily = FontFamily.Monospace,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
                         )
                     } else {
                         Text(
-                            text = "debian-docker.ext4 not found in app storage.",
+                            text = if (isRootfsTruncated) "Truncated Image File (${rootfsFile?.length()?.div(1024 * 1024)} MB)"
+                            else "Full 1.3 GB debian-docker.ext4 not found",
                             fontWeight = FontWeight.SemiBold,
                             color = MaterialTheme.colorScheme.error,
                             fontSize = 13.sp
                         )
-                        Text(
-                            text = "Tap 'Select Image' to choose debian-docker.ext4 from Downloads, or copy it to /sdcard/Download/Termux/uml-android/",
-                            fontSize = 12.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-                        )
+
+                        Spacer(modifier = Modifier.height(6.dp))
+
+                        if (!hasAllFilesAccess) {
+                            Button(
+                                onClick = onRequestStoragePermission,
+                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary),
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                Icon(Icons.Default.Security, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Grant All Files Access (Zero-Copy Boot)", fontSize = 12.sp)
+                            }
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Text(
+                                text = "Enabling All Files Access lets UML boot directly from /sdcard/Download/ without copying 1.3 GB!",
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                            )
+                        } else {
+                            Text(
+                                text = "Place debian-docker.ext4 in /sdcard/Download/Termux/uml-android/ or tap 'Import Image'.",
+                                fontSize = 12.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                            )
+                        }
                     }
                 }
             }
