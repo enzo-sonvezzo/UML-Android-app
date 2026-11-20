@@ -28,6 +28,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.launch
+import java.util.regex.Matcher
 import java.util.regex.Pattern
 
 // Polished One Dark / Modern terminal color palette
@@ -49,44 +50,38 @@ fun TerminalScreen(
         parseAnsiToAnnotated("\u001b[1;36m=== User-Mode Linux ARM64 Terminal Console ===\u001b[0m")
     ) }
     var inputText by remember { mutableStateOf("") }
-    var currentLineBuffer by remember { mutableStateOf("") }
+    var pendingBuffer by remember { mutableStateOf("") }
     var autoScrollEnabled by remember { mutableStateOf(true) }
 
     LaunchedEffect(outputFlow) {
         outputFlow.collect { rawChunk ->
-            // Process raw PTY chunk character-by-character / token-by-token
-            val cleanChunk = cleanTerminalControlCodes(rawChunk)
-            var buffer = currentLineBuffer
+            val cleaned = cleanAnsi(rawChunk)
+            val combined = pendingBuffer + cleaned
+            val split = combined.split("\r\n", "\n")
 
-            for (ch in cleanChunk) {
-                when (ch) {
-                    '\n' -> {
-                        if (lines.size > 2000) {
-                            lines.removeRange(0, 150)
-                        }
-                        lines.add(parseAnsiToAnnotated(buffer))
-                        buffer = ""
+            if (split.size > 1) {
+                for (i in 0 until split.size - 1) {
+                    val rawLine = split[i]
+                    // If line had standalone \r (progress bar or prompt redraw), take the last segment
+                    val finalLine = if (rawLine.contains('\r')) {
+                        rawLine.substringAfterLast('\r')
+                    } else {
+                        rawLine
                     }
-                    '\r' -> {
-                        // Carriage return resets cursor to start of line (for prompts, progress bars)
-                        // If followed by newline, \n handles line commit. If not, it overwrites.
-                        buffer = ""
+                    if (lines.size > 2500) {
+                        lines.removeRange(0, 150)
                     }
-                    '\b' -> {
-                        if (buffer.isNotEmpty()) {
-                            buffer = buffer.substring(0, buffer.length - 1)
-                        }
-                    }
-                    else -> {
-                        buffer += ch
-                    }
+                    lines.add(parseAnsiToAnnotated(finalLine))
                 }
+                pendingBuffer = split.last()
+            } else {
+                pendingBuffer = combined
             }
-            currentLineBuffer = buffer
 
-            if (autoScrollEnabled && lines.isNotEmpty()) {
+            if (autoScrollEnabled) {
                 scope.launch {
-                    listState.scrollToItem(lines.size - 1)
+                    val target = (lines.size + (if (pendingBuffer.isNotEmpty()) 1 else 0) - 1).coerceAtLeast(0)
+                    listState.scrollToItem(target)
                 }
             }
         }
@@ -125,7 +120,7 @@ fun TerminalScreen(
                     }
                     IconButton(onClick = {
                         lines.clear()
-                        currentLineBuffer = ""
+                        pendingBuffer = ""
                         lines.add(parseAnsiToAnnotated("\u001b[1;33m[Console Cleared]\u001b[0m"))
                     }) {
                         Icon(Icons.Default.DeleteSweep, contentDescription = "Clear", tint = Color.White)
@@ -163,11 +158,12 @@ fun TerminalScreen(
                     )
                 }
 
-                // If there is an active prompt or command line being typed
-                if (currentLineBuffer.isNotEmpty()) {
+                // If there is an active prompt or command line being typed without trailing newline
+                val displayPending = if (pendingBuffer.contains('\r')) pendingBuffer.substringAfterLast('\r') else pendingBuffer
+                if (displayPending.isNotEmpty()) {
                     item {
                         Text(
-                            text = parseAnsiToAnnotated(currentLineBuffer),
+                            text = parseAnsiToAnnotated(displayPending),
                             fontFamily = FontFamily.Monospace,
                             fontSize = 12.5.sp,
                             lineHeight = 17.sp
@@ -271,32 +267,39 @@ private fun AccessoryKeyButton(label: String, onClick: () -> Unit) {
 }
 
 /**
- * Filters out raw terminal escape controls:
- * - Bracketed paste mode: \u001b[?2004h, \u001b[?2004l
- * - Cursor modes: \u001b[?25h, \u001b[?25l, \u001b[?7h
- * - Cursor motion & line clears: \u001b[30C, \u001b[4P, \u001b[K, \u001b[2K, \u001b[2J
- * - OSC window title sequences: \u001b]0;...BEL
- * While carefully preserving color sequences: \u001b[...m
+ * Robust ANSI / VT100 Cleaner:
+ * Keeps SGR color codes ('m') while safely removing non-color CSI controls
+ * (cursor moves, bracketed paste ?2004h/l, erase lines, etc.) and OSC window sequences.
  */
-private val OSC_PATTERN = Pattern.compile("\u001b\\][^\u0007\u001b]*(\u0007|\u001b\\\\)")
-private val NON_COLOR_CSI_PATTERN = Pattern.compile("\u001b\\[\\??[0-9;]*[a-zA-LN-Z]")
-private val CHARSET_PATTERN = Pattern.compile("\u001b[()][0-9A-Za-z]")
+private val CSI_PATTERN: Pattern = Pattern.compile("\u001b\\[([?0-9;]*)([a-zA-Z])")
+private val OSC_PATTERN: Pattern = Pattern.compile("\u001b\\][^\u0007\u001b]*(\u0007|\u001b\\\\)")
+private val CHARSET_PATTERN: Pattern = Pattern.compile("\u001b[()][0-9A-Za-z]")
 
-fun cleanTerminalControlCodes(input: String): String {
-    var s = input
-    // Strip OSC sequences
-    s = OSC_PATTERN.matcher(s).replaceAll("")
-    // Strip charset shifts
+fun cleanAnsi(input: String): String {
+    // 1. Strip OSC sequences
+    var s = OSC_PATTERN.matcher(input).replaceAll("")
+    // 2. Strip charset shifts
     s = CHARSET_PATTERN.matcher(s).replaceAll("")
-    // Strip non-color CSI (modes, cursor jumps, bracketed paste)
-    s = NON_COLOR_CSI_PATTERN.matcher(s).replaceAll("")
-    // Strip null bytes and bell
-    s = s.replace("\u0000", "").replace("\u0007", "")
-    return s
+    // 3. Strip bells, nulls
+    s = s.replace("\u0007", "").replace("\u0000", "")
+
+    // 4. Filter CSI sequences: keep 'm' (colors/styling), discard cursor/mode commands
+    val matcher = CSI_PATTERN.matcher(s)
+    val sb = StringBuffer()
+    while (matcher.find()) {
+        val cmd = matcher.group(2)
+        if (cmd == "m") {
+            matcher.appendReplacement(sb, Matcher.quoteReplacement(matcher.group(0) ?: ""))
+        } else {
+            matcher.appendReplacement(sb, "")
+        }
+    }
+    matcher.appendTail(sb)
+    return sb.toString()
 }
 
 /**
- * ANSI SGR Escape Sequence Parser converting color codes into a styled Compose AnnotatedString
+ * ANSI Color Parser converting SGR color sequences into a styled Compose AnnotatedString
  */
 private val ANSI_COLOR_PATTERN: Pattern = Pattern.compile("\u001b\\[([0-9;]*)m")
 
@@ -342,7 +345,7 @@ fun parseAnsiToAnnotated(raw: String): AnnotatedString {
                     "34" -> currentColor = Color(0xFF61AFEF) // Blue
                     "35" -> currentColor = Color(0xFFC678DD) // Magenta
                     "36" -> currentColor = Color(0xFF56B6C2) // Cyan
-                    "37" -> currentColor = Color(0xFFABB2BF) // White
+                    "37" -> currentColor = Color(0xFFDCDFE4) // White
                     "90" -> currentColor = Color(0xFF7F848E) // Bright black
                     "91" -> currentColor = Color(0xFFFF6B6B) // Bright red
                     "92" -> currentColor = Color(0xFF69DB7C) // Bright green
