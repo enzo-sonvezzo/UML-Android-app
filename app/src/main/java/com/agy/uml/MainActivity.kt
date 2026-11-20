@@ -224,6 +224,21 @@ class MainActivity : ComponentActivity() {
                                     onSelectRootfs = {
                                         rootfsPickerLauncher.launch(arrayOf("*/*"))
                                     },
+                                    onExpandDisk = { addGb ->
+                                        rootfsPath?.let { path ->
+                                            val file = File(path)
+                                            val currentGb = file.length() / (1024L * 1024L * 1024L)
+                                            val newGb = (if (currentGb < 1) 16L else currentGb) + addGb
+                                            if (AssetInstaller.expandSparseDisk(file, newGb)) {
+                                                Toast.makeText(
+                                                    this@MainActivity,
+                                                    "Expanded disk capacity to $newGb GB! (0 physical MB allocated)",
+                                                    Toast.LENGTH_SHORT
+                                                ).show()
+                                                scanForRootfs()
+                                            }
+                                        }
+                                    },
                                     onStartKernel = {
                                         val targetRootfs = rootfsPath
                                         if (targetRootfs == null || !File(targetRootfs).exists() || File(targetRootfs).length() < 500 * 1024 * 1024L) {

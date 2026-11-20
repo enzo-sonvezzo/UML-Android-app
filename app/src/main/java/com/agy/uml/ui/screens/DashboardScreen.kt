@@ -35,6 +35,7 @@ fun DashboardScreen(
     onRequestStoragePermission: () -> Unit,
     onMemoryChange: (Int) -> Unit,
     onSelectRootfs: () -> Unit,
+    onExpandDisk: ((Long) -> Unit)? = null,
     onStartKernel: () -> Unit,
     onStopKernel: () -> Unit,
     onOpenTerminal: () -> Unit,
@@ -280,6 +281,7 @@ fun DashboardScreen(
                         )
                     } else if (isRootfsValid && rootfsFile != null) {
                         val sizeMb = rootfsFile.length() / (1024 * 1024)
+                        val sizeGb = sizeMb / 1024
                         Text(
                             text = rootfsFile.name,
                             fontWeight = FontWeight.Bold,
@@ -287,7 +289,7 @@ fun DashboardScreen(
                             fontSize = 14.sp
                         )
                         Text(
-                            text = "Size: ${sizeMb} MB (Valid ext4 filesystem)",
+                            text = "Virtual Capacity: ${if (sizeGb > 0) "$sizeGb GB" else "$sizeMb MB"} (Dynamic Sparse ext4)",
                             fontSize = 12.sp,
                             color = Color(0xFF2E7D32),
                             fontWeight = FontWeight.SemiBold
@@ -298,6 +300,38 @@ fun DashboardScreen(
                             fontFamily = FontFamily.Monospace,
                             color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
                         )
+
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Text(
+                            text = "Expand Disk Capacity (Dynamic Sparse):",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            FilledTonalButton(
+                                onClick = { onExpandDisk?.invoke(8L) },
+                                shape = RoundedCornerShape(10.dp),
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp)
+                            ) {
+                                Text("+8 GB", fontSize = 11.sp)
+                            }
+                            FilledTonalButton(
+                                onClick = { onExpandDisk?.invoke(16L) },
+                                shape = RoundedCornerShape(10.dp),
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp)
+                            ) {
+                                Text("+16 GB", fontSize = 11.sp)
+                            }
+                            FilledTonalButton(
+                                onClick = { onExpandDisk?.invoke(32L) },
+                                shape = RoundedCornerShape(10.dp),
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp)
+                            ) {
+                                Text("+32 GB", fontSize = 11.sp)
+                            }
+                        }
                     } else {
                         Text(
                             text = if (isRootfsTruncated) "Truncated Image File (${rootfsFile?.length()?.div(1024 * 1024)} MB)"

@@ -72,11 +72,20 @@ object UmlProcessBridge {
         return """
             ifconfig vec0 up 2>/dev/null || true
             udhcpc -i vec0 -n -q -t 4 2>/dev/null || true
-            mkdir -p /sys/fs/cgroup /run /dev/shm
+            mkdir -p /sys/fs/cgroup /run /dev/shm /run/user/0
             mount -t cgroup2 none /sys/fs/cgroup 2>/dev/null || true
             mount -t tmpfs tmpfs /run 2>/dev/null || true
             mount -t tmpfs tmpfs /dev/shm 2>/dev/null || true
             echo 'nameserver 1.1.1.1' > /etc/resolv.conf
+
+            # Online dynamic ext4 filesystem expansion
+            resize2fs /dev/ubda 2>/dev/null || true
+
+            # D-Bus session bus initialization for Flatpaks and desktop apps
+            dbus-daemon --system --fork 2>/dev/null || true
+            dbus-daemon --session --fork --address=unix:path=/run/user/0/bus 2>/dev/null || true
+            export DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/0/bus
+
             # Bridge guest Wayland/Anland socket to Android Host
             mkdir -p /tmp/.anland
             socat UNIX-LISTEN:/tmp/.anland/wayland-0,fork TCP:10.0.2.2:$anlandPort &
