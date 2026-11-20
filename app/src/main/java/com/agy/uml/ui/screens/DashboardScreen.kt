@@ -22,19 +22,23 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.agy.uml.model.UmlStatus
+import java.io.File
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DashboardScreen(
     status: UmlStatus,
     allocatedMemoryMb: Int,
+    rootfsPath: String?,
     onMemoryChange: (Int) -> Unit,
+    onSelectRootfs: () -> Unit,
     onStartKernel: () -> Unit,
     onStopKernel: () -> Unit,
     onOpenTerminal: () -> Unit,
     onOpenGraphical: () -> Unit
 ) {
     val scrollState = rememberScrollState()
+    val isRootfsValid = rootfsPath != null && File(rootfsPath).exists() && File(rootfsPath).length() > 0
 
     Scaffold(
         topBar = {
@@ -189,13 +193,93 @@ fun DashboardScreen(
                                 onClick = onStartKernel,
                                 modifier = Modifier.fillMaxWidth(),
                                 shape = RoundedCornerShape(16.dp),
-                                enabled = status !is UmlStatus.Starting
+                                enabled = status !is UmlStatus.Starting && isRootfsValid
                             ) {
                                 Icon(Icons.Default.PlayArrow, contentDescription = null)
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Text("Boot Linux Session")
                             }
                         }
+                    }
+
+                    if (!isRootfsValid && status is UmlStatus.Stopped) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = "⚠️ Select a valid RootFS (.ext4) image below to boot.",
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.error
+                        )
+                    }
+                }
+            }
+
+            // Disk Image / RootFS Card
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(24.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = if (isRootfsValid) MaterialTheme.colorScheme.surfaceVariant else MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.3f)
+                )
+            ) {
+                Column(modifier = Modifier.padding(20.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = if (isRootfsValid) Icons.Default.Storage else Icons.Default.Warning,
+                                contentDescription = null,
+                                tint = if (isRootfsValid) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "RootFS Block Device (ubda)",
+                                style = MaterialTheme.typography.titleMedium
+                            )
+                        }
+
+                        FilledTonalButton(
+                            onClick = onSelectRootfs,
+                            shape = RoundedCornerShape(12.dp),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                            enabled = status is UmlStatus.Stopped
+                        ) {
+                            Icon(Icons.Default.FolderOpen, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Select Image", fontSize = 12.sp)
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    if (isRootfsValid && rootfsPath != null) {
+                        val file = File(rootfsPath)
+                        val sizeMb = file.length() / (1024 * 1024)
+                        Text(
+                            text = file.name,
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = FontFamily.Monospace,
+                            fontSize = 14.sp
+                        )
+                        Text(
+                            text = "Size: ${sizeMb} MB • Path: $rootfsPath",
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                        )
+                    } else {
+                        Text(
+                            text = "debian-docker.ext4 not found in app storage.",
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.error,
+                            fontSize = 13.sp
+                        )
+                        Text(
+                            text = "Tap 'Select Image' to choose debian-docker.ext4 from Downloads, or copy it to /sdcard/Download/Termux/uml-android/",
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                        )
                     }
                 }
             }
