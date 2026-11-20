@@ -80,6 +80,7 @@ object UmlProcessBridge {
             mount -t tmpfs tmpfs /run 2>/dev/null || true
             mount -t tmpfs tmpfs /dev/shm 2>/dev/null || true
             echo 'nameserver 1.1.1.1' > /etc/resolv.conf
+            grep -q "umdebian" /etc/hosts 2>/dev/null || echo "127.0.0.1 localhost umdebian $(hostname 2>/dev/null)" >> /etc/hosts 2>/dev/null || true
 
             # Online dynamic ext4 filesystem expansion
             resize2fs /dev/ubda 2>/dev/null || true

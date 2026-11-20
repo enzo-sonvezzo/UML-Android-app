@@ -414,8 +414,8 @@ fun GraphicalScreen(
                         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                             Button(
                                 onClick = {
-                                    // Send 1-tap start command directly to Linux PTY
-                                    onSendKey("vncserver :0 -geometry $targetResolution -depth 24 -localhost no -SecurityTypes None && export DISPLAY=:0 WAYLAND_DISPLAY=wayland-0\n")
+                                    // Send 1-tap start command ensuring /etc/hosts has hostname to prevent 'Name or service not known'
+                                    onSendKey("grep -q 'umdebian' /etc/hosts 2>/dev/null || echo '127.0.0.1 localhost umdebian' | sudo tee -a /etc/hosts; vncserver -kill :0 2>/dev/null; vncserver :0 -geometry $targetResolution -depth 24 -localhost no -SecurityTypes None; export DISPLAY=:0 WAYLAND_DISPLAY=wayland-0\n")
                                     connectDisplay()
                                 },
                                 shape = RoundedCornerShape(14.dp)
@@ -461,14 +461,6 @@ fun GraphicalScreen(
                     }
 
                     FilledTonalButton(
-                        onClick = { onSendKey("Super") },
-                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
-                        modifier = Modifier.height(34.dp)
-                    ) {
-                        Text("Super / Win", fontSize = 11.sp)
-                    }
-
-                    FilledTonalButton(
                         onClick = { onSendKey("\u001b\t") },
                         contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
                         modifier = Modifier.height(34.dp)
@@ -477,11 +469,19 @@ fun GraphicalScreen(
                     }
 
                     FilledTonalButton(
-                        onClick = { onSendKey("x-terminal-emulator &\n") },
+                        onClick = { onSendKey("\nx-terminal-emulator &\n") },
                         contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
                         modifier = Modifier.height(34.dp)
                     ) {
                         Text("Terminal", fontSize = 11.sp)
+                    }
+
+                    FilledTonalButton(
+                        onClick = { onSendKey("\nopenbox --restart 2>/dev/null &\n") },
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
+                        modifier = Modifier.height(34.dp)
+                    ) {
+                        Text("Window Mgr", fontSize = 11.sp)
                     }
                 }
             }
