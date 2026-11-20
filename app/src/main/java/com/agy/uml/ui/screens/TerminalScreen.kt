@@ -267,19 +267,66 @@ private fun AccessoryKeyButton(label: String, onClick: () -> Unit) {
 }
 
 /**
+ * Translates VT100 DEC Special Graphics sequences (\u001b(0 ... \u001b(B)
+ * into proper UTF-8 box drawing characters (─, │, ┌, ┐, └, ┘, etc.)
+ */
+fun translateDecGraphics(input: String): String {
+    val sb = StringBuilder()
+    var inDecMode = false
+    var i = 0
+    while (i < input.length) {
+        if (i + 2 < input.length && input[i] == '\u001b' && (input[i + 1] == '(' || input[i + 1] == ')')) {
+            val mode = input[i + 2]
+            if (mode == '0') {
+                inDecMode = true
+            } else if (mode == 'B' || mode == 'A') {
+                inDecMode = false
+            }
+            i += 3
+            continue
+        }
+
+        val ch = input[i]
+        if (inDecMode) {
+            val mapped = when (ch) {
+                'q' -> '─'
+                'x' -> '│'
+                'l' -> '┌'
+                'k' -> '┐'
+                'm' -> '└'
+                'j' -> '┘'
+                't' -> '├'
+                'u' -> '┤'
+                'v' -> '┴'
+                'w' -> '┬'
+                'n' -> '┼'
+                'a' -> '▒'
+                '~' -> '•'
+                '`' -> '◆'
+                else -> ch
+            }
+            sb.append(mapped)
+        } else {
+            sb.append(ch)
+        }
+        i++
+    }
+    return sb.toString()
+}
+
+/**
  * Robust ANSI / VT100 Cleaner:
  * Keeps SGR color codes ('m') while safely removing non-color CSI controls
  * (cursor moves, bracketed paste ?2004h/l, erase lines, etc.) and OSC window sequences.
  */
 private val CSI_PATTERN: Pattern = Pattern.compile("\u001b\\[([?0-9;]*)([a-zA-Z])")
 private val OSC_PATTERN: Pattern = Pattern.compile("\u001b\\][^\u0007\u001b]*(\u0007|\u001b\\\\)")
-private val CHARSET_PATTERN: Pattern = Pattern.compile("\u001b[()][0-9A-Za-z]")
 
 fun cleanAnsi(input: String): String {
-    // 1. Strip OSC sequences
-    var s = OSC_PATTERN.matcher(input).replaceAll("")
-    // 2. Strip charset shifts
-    s = CHARSET_PATTERN.matcher(s).replaceAll("")
+    // 1. First translate DEC graphics to real box characters
+    var s = translateDecGraphics(input)
+    // 2. Strip OSC sequences
+    s = OSC_PATTERN.matcher(s).replaceAll("")
     // 3. Strip bells, nulls
     s = s.replace("\u0007", "").replace("\u0000", "")
 

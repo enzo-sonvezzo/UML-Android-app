@@ -94,6 +94,7 @@ Java_com_agy_uml_service_UmlProcessBridge_nativeForkAndExec(
         setenv("TMPDIR", cwd_str.c_str(), 1);
         setenv("HOME", cwd_str.c_str(), 1);
         setenv("TERM", "xterm-256color", 1);
+        setenv("DEBIAN_FRONTEND", "noninteractive", 1);
 
         if (chdir(cwd_str.c_str()) != 0) {
             dprintf(STDERR_FILENO, "chdir(%s) failed: %s\r\n", cwd_str.c_str(), strerror(errno));
