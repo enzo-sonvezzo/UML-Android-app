@@ -43,7 +43,7 @@ enum class ScreenTab {
 
 class MainActivity : ComponentActivity() {
 
-    private var sessionService: UmlSessionService? = null
+    private var sessionService by mutableStateOf<UmlSessionService?>(null)
     private var isBound by mutableStateOf(false)
 
     // Activity-level observable state for RootFS detection and storage access
@@ -272,6 +272,7 @@ class MainActivity : ComponentActivity() {
                                             enableNetworking = true
                                         )
                                         sessionService?.startSession(config)
+                                        currentTab = ScreenTab.TERMINAL
                                     },
                                     onStopKernel = { sessionService?.stopSession() },
                                     onOpenTerminal = { currentTab = ScreenTab.TERMINAL },
