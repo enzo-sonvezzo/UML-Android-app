@@ -1,6 +1,7 @@
 package com.agy.uml.service
 
 import android.content.Context
+import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -8,30 +9,39 @@ import java.io.FileOutputStream
 
 object AssetInstaller {
 
+    private const val TAG = "AssetInstaller"
+
     /**
-     * Checks if core UML engine binaries exist in app-private storage.
-     * If not, extracts them from APK assets and sets executable permissions.
+     * Checks if the required UML engine binaries exist either in
+     * applicationInfo.nativeLibraryDir (recommended for Android 10+ SELinux W^X)
+     * or app filesDir as fallback.
      */
     suspend fun ensureBinariesInstalled(context: Context): Boolean = withContext(Dispatchers.IO) {
+        val libDir = File(context.applicationInfo.nativeLibraryDir)
         val filesDir = context.filesDir
-        val requiredBinaries = listOf("linux", "stub_exe", "umnet", "passt")
-        
-        var allPresent = true
-        for (bin in requiredBinaries) {
-            val file = File(filesDir, bin)
-            if (!file.exists()) {
-                allPresent = false
-                break
-            }
-        }
 
-        if (allPresent) {
+        val nativeLibs = listOf("liblinux.so", "libstub_exe.so")
+        val presentInNativeLibDir = nativeLibs.all { File(libDir, it).exists() }
+
+        if (presentInNativeLibDir) {
+            Log.i(TAG, "Native UML binaries verified in nativeLibraryDir: ${libDir.absolutePath}")
             return@withContext true
         }
 
-        // Extract binaries from assets if present
+        Log.w(TAG, "Native libs not found in nativeLibraryDir, checking filesDir fallback...")
+
+        // Fallback: check filesDir
+        val fallbackLibs = listOf("linux", "stub_exe")
+        val presentInFilesDir = fallbackLibs.all { File(filesDir, it).exists() }
+        if (presentInFilesDir) {
+            Log.i(TAG, "UML binaries found in filesDir: ${filesDir.absolutePath}")
+            return@withContext true
+        }
+
+        // Try extracting from assets/bin if packaged
         val assetManager = context.assets
-        for (bin in requiredBinaries) {
+        var extractedAny = false
+        for (bin in listOf("linux", "stub_exe", "umnet", "passt")) {
             val targetFile = File(filesDir, bin)
             if (!targetFile.exists()) {
                 try {
@@ -42,14 +52,18 @@ object AssetInstaller {
                     }
                     targetFile.setExecutable(true, false)
                     targetFile.setReadable(true, false)
+                    extractedAny = true
+                    Log.i(TAG, "Extracted asset: $bin to ${targetFile.absolutePath}")
                 } catch (e: Exception) {
-                    // Binary not in bundled assets; user can provide it or download it
+                    Log.d(TAG, "Asset bin/$bin not in APK assets: ${e.message}")
                 }
-            } else {
-                targetFile.setExecutable(true, false)
             }
         }
 
-        true
+        val finalCheck = File(libDir, "liblinux.so").exists() || File(filesDir, "linux").exists()
+        if (!finalCheck) {
+            Log.e(TAG, "CRITICAL: UML kernel binary (liblinux.so / linux) is missing! Kernel cannot boot.")
+        }
+        finalCheck
     }
 }

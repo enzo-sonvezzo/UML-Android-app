@@ -7,6 +7,9 @@
 #include <termios.h>
 #include <sys/ioctl.h>
 #include <sys/wait.h>
+#include <cerrno>
+#include <cstring>
+#include <cstdio>
 #include <android/log.h>
 
 #define TAG "UML_JNI"
@@ -26,7 +29,7 @@ Java_com_agy_uml_service_UmlProcessBridge_nativeOpenPty(JNIEnv *env, jobject thi
     ws.ws_ypixel = 0;
 
     if (openpty(&master_fd, &slave_fd, nullptr, nullptr, &ws) < 0) {
-        LOGE("Failed to allocate pseudoterminal via openpty");
+        LOGE("Failed to allocate pseudoterminal via openpty: %s", strerror(errno));
         return nullptr;
     }
 
@@ -70,7 +73,7 @@ Java_com_agy_uml_service_UmlProcessBridge_nativeForkAndExec(
 
     pid_t pid = fork();
     if (pid < 0) {
-        LOGE("Fork failed");
+        LOGE("Fork failed: %s", strerror(errno));
         return -1;
     }
 
@@ -83,18 +86,24 @@ Java_com_agy_uml_service_UmlProcessBridge_nativeForkAndExec(
         dup2(slave_fd, STDOUT_FILENO);
         dup2(slave_fd, STDERR_FILENO);
 
-        // Close slave fd after duplication
         if (slave_fd > 2) {
             close(slave_fd);
         }
 
+        // UML requires a writable directory for its mmap RAM backing file
+        setenv("TMPDIR", cwd_str.c_str(), 1);
+        setenv("HOME", cwd_str.c_str(), 1);
+        setenv("TERM", "xterm-256color", 1);
+
         if (chdir(cwd_str.c_str()) != 0) {
-            LOGE("Failed to change directory to %s", cwd_str.c_str());
+            dprintf(STDERR_FILENO, "chdir(%s) failed: %s\r\n", cwd_str.c_str(), strerror(errno));
         }
 
         execvp(args[0], args.data());
-        // If execvp returns, an error occurred
-        LOGE("execvp failed to execute binary %s", args[0]);
+
+        // Print exact error to PTY so it displays in TerminalScreen
+        dprintf(STDERR_FILENO, "execvp(%s) failed: %s (errno=%d)\r\n", args[0], strerror(errno), errno);
+        LOGE("execvp failed for %s: %s (errno=%d)", args[0], strerror(errno), errno);
         _exit(127);
     }
 

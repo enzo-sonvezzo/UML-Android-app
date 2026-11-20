@@ -119,12 +119,25 @@ class UmlSessionService : Service() {
 
     private suspend fun readTerminalLoop(masterFd: Int) {
         val buffer = ByteArray(4096)
-        while (serviceScope.isActive && _status.value is UmlStatus.Running) {
+        while (serviceScope.isActive) {
             val bytesRead = UmlProcessBridge.nativeRead(masterFd, buffer, 0, buffer.size)
             if (bytesRead > 0) {
                 val text = String(buffer, 0, bytesRead, Charsets.UTF_8)
                 _terminalOutput.emit(text)
             } else {
+                // If process is stopped, drain any trailing bytes (e.g. panic or execvp error)
+                if (_status.value !is UmlStatus.Running && _status.value !is UmlStatus.Starting) {
+                    var hasMore = false
+                    for (i in 0 until 5) {
+                        delay(20)
+                        val extra = UmlProcessBridge.nativeRead(masterFd, buffer, 0, buffer.size)
+                        if (extra > 0) {
+                            _terminalOutput.emit(String(buffer, 0, extra, Charsets.UTF_8))
+                            hasMore = true
+                        }
+                    }
+                    if (!hasMore) break
+                }
                 delay(10)
             }
         }
@@ -134,6 +147,8 @@ class UmlSessionService : Service() {
         while (serviceScope.isActive) {
             val res = UmlProcessBridge.nativeWaitPid(pid, true)
             if (res != 0) {
+                // Process finished or exited
+                delay(100) // Allow reader to capture final stdout/stderr
                 _status.value = UmlStatus.Stopped
                 umlPid = -1
                 ptyMasterFd = -1

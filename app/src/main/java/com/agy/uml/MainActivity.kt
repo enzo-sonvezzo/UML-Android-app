@@ -112,13 +112,22 @@ class MainActivity : ComponentActivity() {
                                     onMemoryChange = { allocatedMemoryMb = it },
                                     onStartKernel = {
                                         val filesDir = filesDir
+                                        val libDir = File(applicationInfo.nativeLibraryDir)
+
+                                        // Resolve binaries prioritizing SELinux-executable nativeLibraryDir
+                                        val kernelFile = File(libDir, "liblinux.so").takeIf { it.exists() } ?: File(filesDir, "linux")
+                                        val stubExeFile = File(libDir, "libstub_exe.so").takeIf { it.exists() } ?: File(filesDir, "stub_exe")
+                                        val umnetFile = File(libDir, "libumnet.so").takeIf { it.exists() } ?: File(filesDir, "umnet")
+                                        val passtFile = File(libDir, "libpasst.so").takeIf { it.exists() } ?: File(filesDir, "passt")
+                                        val rootfsFile = File(filesDir, "debian-docker.ext4")
+
                                         val config = UmlConfiguration(
                                             memoryMb = allocatedMemoryMb,
-                                            rootfsPath = File(filesDir, "debian-docker.ext4").absolutePath,
-                                            stubExePath = File(filesDir, "stub_exe").absolutePath,
-                                            kernelPath = File(filesDir, "linux").absolutePath,
-                                            umnetPath = File(filesDir, "umnet").absolutePath,
-                                            passtPath = File(filesDir, "passt").absolutePath,
+                                            rootfsPath = rootfsFile.absolutePath,
+                                            stubExePath = stubExeFile.absolutePath,
+                                            kernelPath = kernelFile.absolutePath,
+                                            umnetPath = if (umnetFile.exists()) umnetFile.absolutePath else null,
+                                            passtPath = if (passtFile.exists()) passtFile.absolutePath else null,
                                             enableNetworking = true
                                         )
                                         sessionService?.startSession(config)
