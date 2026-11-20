@@ -18,14 +18,23 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.agy.uml.ui.theme.TerminalDarkBg
-import com.agy.uml.ui.theme.TerminalGreen
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.launch
+import java.util.regex.Pattern
+
+// Polished One Dark / Modern terminal color palette
+private val TermBgColor = Color(0xFF1E1E24)
+private val TermHeaderColor = Color(0xFF16161C)
+private val TermInputBgColor = Color(0xFF252530)
+private val TermDefaultText = Color(0xFFABB2BF)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -36,17 +45,34 @@ fun TerminalScreen(
 ) {
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
-    val lines = remember { mutableStateListOf<String>("=== User-Mode Linux Console ===") }
+    val lines = remember { mutableStateListOf<AnnotatedString>(
+        parseAnsiToAnnotated("\u001b[1;36m=== User-Mode Linux ARM64 Terminal Console ===\u001b[0m")
+    ) }
     var inputText by remember { mutableStateOf("") }
+    var pendingBuffer by remember { mutableStateOf("") }
 
     LaunchedEffect(outputFlow) {
-        outputFlow.collect { text ->
-            lines.add(text)
-            if (lines.size > 1000) {
-                lines.removeRange(0, 100)
+        outputFlow.collect { rawChunk ->
+            val combined = pendingBuffer + rawChunk
+            val splitLines = combined.split("\r\n", "\n")
+            
+            if (splitLines.isNotEmpty()) {
+                // Add all completed lines
+                for (i in 0 until splitLines.size - 1) {
+                    val line = splitLines[i]
+                    if (lines.size > 1500) {
+                        lines.removeRange(0, 100)
+                    }
+                    lines.add(parseAnsiToAnnotated(line))
+                }
+                // Last piece might be an incomplete line awaiting further output
+                pendingBuffer = splitLines.last()
             }
+
             scope.launch {
-                listState.animateScrollToItem(lines.size - 1)
+                if (lines.isNotEmpty()) {
+                    listState.animateScrollToItem(lines.size - 1)
+                }
             }
         }
     }
@@ -54,19 +80,36 @@ fun TerminalScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Linux Terminal Shell", fontSize = 18.sp) },
+                title = {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(
+                            modifier = Modifier
+                                .size(10.dp)
+                                .background(Color(0xFF2E7D32), RoundedCornerShape(5.dp))
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "Linux Terminal Shell (bash)",
+                            fontSize = 17.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Color.White)
                     }
                 },
                 actions = {
-                    IconButton(onClick = { lines.clear() }) {
-                        Icon(Icons.Default.DeleteSweep, contentDescription = "Clear")
+                    IconButton(onClick = {
+                        lines.clear()
+                        lines.add(parseAnsiToAnnotated("\u001b[1;33m[Console Cleared]\u001b[0m"))
+                    }) {
+                        Icon(Icons.Default.DeleteSweep, contentDescription = "Clear", tint = Color.White)
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = TerminalDarkBg,
+                    containerColor = TermHeaderColor,
                     titleContentColor = Color.White,
                     navigationIconContentColor = Color.White,
                     actionIconContentColor = Color.White
@@ -78,7 +121,7 @@ fun TerminalScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
-                .background(TerminalDarkBg)
+                .background(TermBgColor)
         ) {
             // Main terminal output area
             LazyColumn(
@@ -91,22 +134,33 @@ fun TerminalScreen(
                 items(lines) { line ->
                     Text(
                         text = line,
-                        color = TerminalGreen,
                         fontFamily = FontFamily.Monospace,
-                        fontSize = 13.sp,
-                        lineHeight = 16.sp
+                        fontSize = 12.5.sp,
+                        lineHeight = 17.sp
                     )
+                }
+
+                // If there is an active incomplete line / prompt
+                if (pendingBuffer.isNotEmpty()) {
+                    item {
+                        Text(
+                            text = parseAnsiToAnnotated(pendingBuffer),
+                            fontFamily = FontFamily.Monospace,
+                            fontSize = 12.5.sp,
+                            lineHeight = 17.sp
+                        )
+                    }
                 }
             }
 
-            // Accessory Keys Bar (ESC, TAB, CTRL, ALT, |, /, -, ~, Up, Down)
+            // Polished Accessory Keys Bar with Command Navigation Arrows
             val scrollState = rememberScrollState()
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(Color(0xFF1E1E26))
+                    .background(TermHeaderColor)
                     .horizontalScroll(scrollState)
-                    .padding(horizontal = 6.dp, vertical = 4.dp),
+                    .padding(horizontal = 6.dp, vertical = 6.dp),
                 horizontalArrangement = Arrangement.spacedBy(4.dp)
             ) {
                 AccessoryKeyButton("ESC") { onSendInput("\u001b") }
@@ -114,35 +168,39 @@ fun TerminalScreen(
                 AccessoryKeyButton("CTRL-C") { onSendInput("\u0003") }
                 AccessoryKeyButton("CTRL-D") { onSendInput("\u0004") }
                 AccessoryKeyButton("CTRL-Z") { onSendInput("\u001a") }
+                AccessoryKeyButton("CTRL-L") { onSendInput("\u000c") }
+                AccessoryKeyButton("▲ (Up)") { onSendInput("\u001b[A") }
+                AccessoryKeyButton("▼ (Down)") { onSendInput("\u001b[B") }
+                AccessoryKeyButton("◀") { onSendInput("\u001b[D") }
+                AccessoryKeyButton("▶") { onSendInput("\u001b[C") }
                 AccessoryKeyButton("|") { onSendInput("|") }
                 AccessoryKeyButton("/") { onSendInput("/") }
                 AccessoryKeyButton("~") { onSendInput("~") }
                 AccessoryKeyButton("-") { onSendInput("-") }
-                AccessoryKeyButton("▲") { onSendInput("\u001b[A") }
-                AccessoryKeyButton("▼") { onSendInput("\u001b[B") }
-                AccessoryKeyButton("◀") { onSendInput("\u001b[D") }
-                AccessoryKeyButton("▶") { onSendInput("\u001b[C") }
+                AccessoryKeyButton("$") { onSendInput("$") }
             }
 
             // Command Input Row
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(Color(0xFF181820))
-                    .padding(8.dp),
+                    .background(TermInputBgColor)
+                    .padding(horizontal = 10.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 OutlinedTextField(
                     value = inputText,
                     onValueChange = { inputText = it },
-                    placeholder = { Text("Enter command...", color = Color.Gray, fontSize = 14.sp) },
+                    placeholder = { Text("Type Linux command...", color = Color.Gray, fontSize = 13.sp) },
                     modifier = Modifier.weight(1f),
                     singleLine = true,
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedTextColor = Color.White,
                         unfocusedTextColor = Color.White,
                         focusedBorderColor = MaterialTheme.colorScheme.primary,
-                        unfocusedBorderColor = Color.DarkGray
+                        unfocusedBorderColor = Color(0xFF3F3F50),
+                        focusedContainerColor = Color(0xFF1E1E28),
+                        unfocusedContainerColor = Color(0xFF1E1E28)
                     ),
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
                     keyboardActions = KeyboardActions(onSend = {
@@ -179,12 +237,90 @@ private fun AccessoryKeyButton(label: String, onClick: () -> Unit) {
         onClick = onClick,
         contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
         colors = ButtonDefaults.buttonColors(
-            containerColor = Color(0xFF2A2A36),
+            containerColor = Color(0xFF2C2C3A),
             contentColor = Color.White
         ),
         shape = RoundedCornerShape(8.dp),
-        modifier = Modifier.height(34.dp)
+        modifier = Modifier.height(32.dp)
     ) {
-        Text(text = label, fontSize = 12.sp, fontFamily = FontFamily.Monospace)
+        Text(text = label, fontSize = 11.5.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Medium)
+    }
+}
+
+/**
+ * ANSI Escape Sequence Parser converting terminal text into a styled Compose AnnotatedString
+ */
+private val ANSI_PATTERN: Pattern = Pattern.compile("\u001b\\[([0-9;]*)m")
+
+fun parseAnsiToAnnotated(raw: String): AnnotatedString {
+    return buildAnnotatedString {
+        val matcher = ANSI_PATTERN.matcher(raw)
+        var lastEnd = 0
+
+        var currentColor = TermDefaultText
+        var isBold = false
+
+        while (matcher.find()) {
+            val start = matcher.start()
+            val end = matcher.end()
+
+            if (start > lastEnd) {
+                val plainText = raw.substring(lastEnd, start)
+                val textStart = length
+                append(plainText)
+                addStyle(
+                    SpanStyle(
+                        color = currentColor,
+                        fontWeight = if (isBold) FontWeight.Bold else FontWeight.Normal
+                    ),
+                    textStart,
+                    length
+                )
+            }
+
+            val codes = matcher.group(1)?.split(";") ?: emptyList()
+            for (code in codes) {
+                when (code) {
+                    "", "0" -> {
+                        currentColor = TermDefaultText
+                        isBold = false
+                    }
+                    "1" -> isBold = true
+                    "22" -> isBold = false
+                    "30" -> currentColor = Color(0xFF5C6370) // Black / Gray
+                    "31" -> currentColor = Color(0xFFE06C75) // Red
+                    "32" -> currentColor = Color(0xFF98C379) // Green
+                    "33" -> currentColor = Color(0xFFE5C07B) // Yellow
+                    "34" -> currentColor = Color(0xFF61AFEF) // Blue
+                    "35" -> currentColor = Color(0xFFC678DD) // Magenta
+                    "36" -> currentColor = Color(0xFF56B6C2) // Cyan
+                    "37" -> currentColor = Color(0xFFABB2BF) // White
+                    "90" -> currentColor = Color(0xFF7F848E) // Bright black
+                    "91" -> currentColor = Color(0xFFFF6B6B) // Bright red
+                    "92" -> currentColor = Color(0xFF69DB7C) // Bright green
+                    "93" -> currentColor = Color(0xFFFFD43B) // Bright yellow
+                    "94" -> currentColor = Color(0xFF4DABF7) // Bright blue
+                    "95" -> currentColor = Color(0xFFDA77F2) // Bright magenta
+                    "96" -> currentColor = Color(0xFF3BC9DB) // Bright cyan
+                    "97" -> currentColor = Color(0xFFFFFFFF) // Bright white
+                }
+            }
+
+            lastEnd = end
+        }
+
+        if (lastEnd < raw.length) {
+            val plainText = raw.substring(lastEnd)
+            val textStart = length
+            append(plainText)
+            addStyle(
+                SpanStyle(
+                    color = currentColor,
+                    fontWeight = if (isBold) FontWeight.Bold else FontWeight.Normal
+                ),
+                textStart,
+                length
+            )
+        }
     }
 }
