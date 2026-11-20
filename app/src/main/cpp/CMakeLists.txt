@@ -16,5 +16,4 @@ find_library(
 target_link_libraries(
     uml_jni
     ${log-lib}
-    util
 )
