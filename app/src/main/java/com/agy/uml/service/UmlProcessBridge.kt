@@ -51,6 +51,9 @@ object UmlProcessBridge {
         cmdList.add("root=/dev/ubda")
         cmdList.add("init=/umarm-init")
         cmdList.add("stub_exe=${config.stubExePath}")
+        if (config.cpuCores > 1) {
+            cmdList.add("smp=${config.cpuCores}")
+        }
 
         config.extraKernelParams.split(" ").filter { it.isNotBlank() }.forEach {
             cmdList.add(it)

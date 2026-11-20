@@ -86,6 +86,7 @@ class MainActivity : ComponentActivity() {
 
                 var currentTab by remember { mutableStateOf(ScreenTab.DASHBOARD) }
                 var allocatedMemoryMb by remember { mutableIntStateOf(2048) }
+                var cpuCores by remember { mutableIntStateOf(6) }
 
                 val coroutineScope = rememberCoroutineScope()
 
@@ -221,6 +222,8 @@ class MainActivity : ComponentActivity() {
                                         }
                                     },
                                     onMemoryChange = { allocatedMemoryMb = it },
+                                    cpuCores = cpuCores,
+                                    onCpuCoresChange = { cpuCores = it },
                                     onSelectRootfs = {
                                         rootfsPickerLauncher.launch(arrayOf("*/*"))
                                     },
@@ -260,6 +263,7 @@ class MainActivity : ComponentActivity() {
 
                                         val config = UmlConfiguration(
                                             memoryMb = allocatedMemoryMb,
+                                            cpuCores = cpuCores,
                                             rootfsPath = targetRootfs,
                                             stubExePath = stubExeFile.absolutePath,
                                             kernelPath = kernelFile.absolutePath,

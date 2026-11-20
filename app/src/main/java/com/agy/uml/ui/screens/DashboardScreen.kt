@@ -34,6 +34,8 @@ fun DashboardScreen(
     hasAllFilesAccess: Boolean,
     onRequestStoragePermission: () -> Unit,
     onMemoryChange: (Int) -> Unit,
+    cpuCores: Int = 4,
+    onCpuCoresChange: (Int) -> Unit = {},
     onSelectRootfs: () -> Unit,
     onExpandDisk: ((Long) -> Unit)? = null,
     onStartKernel: () -> Unit,
@@ -405,6 +407,51 @@ fun DashboardScreen(
 
                     Text(
                         text = "Memory is dynamically mapped into host RAM via mmap.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                    )
+                }
+            }
+
+            // CPU Cores Configuration Card
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(24.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant
+                )
+            ) {
+                Column(modifier = Modifier.padding(20.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.Memory, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "CPU Cores",
+                                style = MaterialTheme.typography.titleMedium
+                            )
+                        }
+                        Text(
+                            text = "$cpuCores Cores (smp=$cpuCores)",
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+
+                    Slider(
+                        value = cpuCores.toFloat(),
+                        onValueChange = { onCpuCoresChange(it.toInt()) },
+                        valueRange = 1f..8f,
+                        steps = 6,
+                        enabled = status is UmlStatus.Stopped
+                    )
+
+                    Text(
+                        text = "Host CFS scheduler balances guest threads across physical device CPU cores.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                     )

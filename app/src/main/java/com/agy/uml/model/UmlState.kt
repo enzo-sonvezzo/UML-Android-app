@@ -9,6 +9,7 @@ sealed interface UmlStatus {
 
 data class UmlConfiguration(
     val memoryMb: Int = 2048,
+    val cpuCores: Int = 4,
     val rootfsPath: String,
     val stubExePath: String,
     val kernelPath: String,
