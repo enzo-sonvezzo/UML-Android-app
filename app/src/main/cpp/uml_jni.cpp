@@ -11,6 +11,8 @@
 #include <cstring>
 #include <cstdio>
 #include <android/log.h>
+#include <EGL/egl.h>
+#include <GLES3/gl3.h>
 
 #define TAG "UML_JNI"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, TAG, __VA_ARGS__)
@@ -177,6 +179,57 @@ Java_com_agy_uml_service_UmlProcessBridge_nativeWaitPid(JNIEnv *env, jobject thi
         if (WIFSIGNALED(status)) return -WTERMSIG(status);
     }
     return res;
+}
+
+JNIEXPORT jstring JNICALL
+Java_com_agy_uml_service_UmlProcessBridge_nativeGetGpuRenderer(JNIEnv *env, jobject thiz) {
+    EGLDisplay display = eglGetDisplay(EGL_DEFAULT_DISPLAY);
+    if (display == EGL_NO_DISPLAY || !eglInitialize(display, nullptr, nullptr)) {
+        return env->NewStringUTF("ARM Mali GPU (MediaTek SoC)");
+    }
+
+    EGLConfig config;
+    EGLint numConfigs = 0;
+    EGLint attribs[] = {
+        EGL_RENDERABLE_TYPE, EGL_OPENGL_ES3_BIT,
+        EGL_SURFACE_TYPE, EGL_PBUFFER_BIT,
+        EGL_NONE
+    };
+    if (!eglChooseConfig(display, attribs, &config, 1, &numConfigs) || numConfigs <= 0) {
+        attribs[1] = EGL_OPENGL_ES2_BIT;
+        eglChooseConfig(display, attribs, &config, 1, &numConfigs);
+    }
+
+    EGLint ctxAttribs[] = { EGL_CONTEXT_CLIENT_VERSION, 3, EGL_NONE };
+    EGLContext context = eglCreateContext(display, config, EGL_NO_CONTEXT, ctxAttribs);
+    if (context == EGL_NO_CONTEXT) {
+        ctxAttribs[1] = 2;
+        context = eglCreateContext(display, config, EGL_NO_CONTEXT, ctxAttribs);
+    }
+
+    std::string result = "ARM Mali GPU (MediaTek SoC)";
+    if (context != EGL_NO_CONTEXT) {
+        EGLint pbufAttribs[] = { EGL_WIDTH, 1, EGL_HEIGHT, 1, EGL_NONE };
+        EGLSurface surface = eglCreatePbufferSurface(display, config, pbufAttribs);
+        if (surface != EGL_NO_SURFACE) {
+            if (eglMakeCurrent(display, surface, surface, context)) {
+                const char *renderer = (const char*) glGetString(GL_RENDERER);
+                const char *vendor = (const char*) glGetString(GL_VENDOR);
+                if (renderer != nullptr) {
+                    result = std::string(renderer);
+                    if (vendor != nullptr) {
+                        result += " (" + std::string(vendor) + ")";
+                    }
+                }
+                eglMakeCurrent(display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
+            }
+            eglDestroySurface(display, surface);
+        }
+        eglDestroyContext(display, context);
+    }
+    eglTerminate(display);
+
+    return env->NewStringUTF(result.c_str());
 }
 
 } // extern "C"

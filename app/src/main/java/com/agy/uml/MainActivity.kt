@@ -87,8 +87,25 @@ class MainActivity : ComponentActivity() {
                 var currentTab by remember { mutableStateOf(ScreenTab.DASHBOARD) }
                 var allocatedMemoryMb by remember { mutableIntStateOf(2048) }
                 var cpuCores by remember { mutableIntStateOf(6) }
+                var enableGpuAcceleration by remember { mutableStateOf(true) }
+                var gpuRendererInfo by remember { mutableStateOf("Detecting Mali GPU...") }
 
                 val coroutineScope = rememberCoroutineScope()
+
+                LaunchedEffect(Unit) {
+                    coroutineScope.launch(Dispatchers.IO) {
+                        try {
+                            val renderer = UmlProcessBridge.nativeGetGpuRenderer()
+                            withContext(Dispatchers.Main) {
+                                gpuRendererInfo = renderer
+                            }
+                        } catch (_: Exception) {
+                            withContext(Dispatchers.Main) {
+                                gpuRendererInfo = "ARM Mali GPU (MediaTek SoC)"
+                            }
+                        }
+                    }
+                }
 
                 // File picker launcher with atomic copy & live progress tracking
                 val rootfsPickerLauncher = rememberLauncherForActivityResult(
@@ -224,6 +241,17 @@ class MainActivity : ComponentActivity() {
                                     onMemoryChange = { allocatedMemoryMb = it },
                                     cpuCores = cpuCores,
                                     onCpuCoresChange = { cpuCores = it },
+                                    enableGpuAcceleration = enableGpuAcceleration,
+                                    onToggleGpuAcceleration = { enableGpuAcceleration = it },
+                                    gpuRendererInfo = gpuRendererInfo,
+                                    onRunGpuBenchmark = {
+                                        sessionService?.sendInput("\numl-gpu-test\n")
+                                        currentTab = ScreenTab.TERMINAL
+                                    },
+                                    onShowGpuInfo = {
+                                        sessionService?.sendInput("\numl-gpu-info\n")
+                                        currentTab = ScreenTab.TERMINAL
+                                    },
                                     onSelectRootfs = {
                                         rootfsPickerLauncher.launch(arrayOf("*/*"))
                                     },
@@ -269,7 +297,8 @@ class MainActivity : ComponentActivity() {
                                             kernelPath = kernelFile.absolutePath,
                                             umnetPath = if (umnetFile.exists()) umnetFile.absolutePath else null,
                                             passtPath = if (passtFile.exists()) passtFile.absolutePath else null,
-                                            enableNetworking = true
+                                            enableNetworking = true,
+                                            enableGpuAcceleration = enableGpuAcceleration
                                         )
                                         sessionService?.startSession(config)
                                         currentTab = ScreenTab.TERMINAL

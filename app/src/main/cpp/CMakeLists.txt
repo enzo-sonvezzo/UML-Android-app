@@ -13,7 +13,19 @@ find_library(
     log
 )
 
+find_library(
+    egl-lib
+    EGL
+)
+
+find_library(
+    gles-lib
+    GLESv3
+)
+
 target_link_libraries(
     uml_jni
     ${log-lib}
+    ${egl-lib}
+    ${gles-lib}
 )

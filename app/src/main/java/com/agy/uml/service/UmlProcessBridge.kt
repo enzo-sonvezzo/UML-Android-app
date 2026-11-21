@@ -23,6 +23,7 @@ object UmlProcessBridge {
     external fun nativeRead(masterFd: Int, buffer: ByteArray, offset: Int, length: Int): Int
     external fun nativeKill(pid: Int, sig: Int)
     external fun nativeWaitPid(pid: Int, nohang: Boolean): Int
+    external fun nativeGetGpuRenderer(): String
 
     suspend fun launchUmlProcess(
         config: UmlConfiguration,
@@ -69,9 +70,35 @@ object UmlProcessBridge {
 
     /**
      * Helper script to initialize guest networking, mount shm/cgroup,
-     * and bridge the Anland Wayland socket to the Android host Surface consumer.
+     * inject Mali VirGL GPU acceleration, and bridge the Wayland socket.
      */
-    fun getGuestStartupScript(anlandPort: Int = 19455): String {
+    fun getGuestStartupScript(anlandPort: Int = 19455, enableGpu: Boolean = true): String {
+        val gpuConfig = if (enableGpu) """
+            # Configure Mesa VirGL / Virpipe Hardware Acceleration for Mali GPU
+            export GALLIUM_DRIVER=virpipe
+            export VTEST_SERVER=10.0.2.2
+            export MESA_GL_VERSION_OVERRIDE=4.0
+            export MESA_GLES_VERSION_OVERRIDE=3.2
+            export VIRGL_NO_LOG=1
+
+            cat << 'GPUEOF' > /usr/local/bin/uml-gpu-info
+#!/bin/sh
+echo "=== Linux OpenGL / GPU Acceleration Info ==="
+glxinfo -B 2>/dev/null || es2_info 2>/dev/null || echo "mesa-utils not installed: sudo apt install -y mesa-utils"
+GPUEOF
+            chmod +x /usr/local/bin/uml-gpu-info 2>/dev/null || true
+
+            cat << 'GPUEOF' > /usr/local/bin/uml-gpu-test
+#!/bin/sh
+echo "Starting 3D Hardware Accelerated Gears benchmark..."
+es2gears 2>/dev/null || glxgears 2>/dev/null || echo "mesa-utils-extra not installed: sudo apt install -y mesa-utils-extra"
+GPUEOF
+            chmod +x /usr/local/bin/uml-gpu-test 2>/dev/null || true
+        """.trimIndent() else """
+            # Software Rasterizer fallback (llvmpipe)
+            export GALLIUM_DRIVER=llvmpipe
+        """.trimIndent()
+
         return """
             ifconfig vec0 up 2>/dev/null || true
             udhcpc -i vec0 -n -q -t 4 2>/dev/null || true
@@ -89,6 +116,8 @@ object UmlProcessBridge {
             dbus-daemon --system --fork 2>/dev/null || true
             dbus-daemon --session --fork --address=unix:path=/run/user/0/bus 2>/dev/null || true
             export DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/0/bus
+
+            $gpuConfig
 
             # Bridge guest Wayland/Anland socket to Android Host
             mkdir -p /tmp/.anland

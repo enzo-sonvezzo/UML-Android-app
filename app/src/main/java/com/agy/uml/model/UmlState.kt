@@ -16,6 +16,7 @@ data class UmlConfiguration(
     val umnetPath: String? = null,
     val passtPath: String? = null,
     val enableNetworking: Boolean = true,
+    val enableGpuAcceleration: Boolean = true,
     val extraKernelParams: String = "panic=-1 con=null con0=fd:0,fd:1 rw"
 )
 

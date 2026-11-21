@@ -36,6 +36,11 @@ fun DashboardScreen(
     onMemoryChange: (Int) -> Unit,
     cpuCores: Int = 4,
     onCpuCoresChange: (Int) -> Unit = {},
+    enableGpuAcceleration: Boolean = true,
+    onToggleGpuAcceleration: (Boolean) -> Unit = {},
+    gpuRendererInfo: String = "ARM Mali GPU (MediaTek SoC)",
+    onRunGpuBenchmark: () -> Unit = {},
+    onShowGpuInfo: () -> Unit = {},
     onSelectRootfs: () -> Unit,
     onExpandDisk: ((Long) -> Unit)? = null,
     onStartKernel: () -> Unit,
@@ -455,6 +460,122 @@ fun DashboardScreen(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                     )
+                }
+            }
+
+            // GPU Hardware Acceleration Card (ARM Mali / MediaTek SoC)
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(24.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = if (enableGpuAcceleration) MaterialTheme.colorScheme.surfaceVariant
+                    else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
+                )
+            ) {
+                Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                Icons.Default.Speed,
+                                contentDescription = null,
+                                tint = if (enableGpuAcceleration) Color(0xFF2E7D32) else MaterialTheme.colorScheme.primary
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "Mali GPU Acceleration",
+                                style = MaterialTheme.typography.titleMedium
+                            )
+                        }
+
+                        Switch(
+                            checked = enableGpuAcceleration,
+                            onCheckedChange = onToggleGpuAcceleration,
+                            enabled = status is UmlStatus.Stopped
+                        )
+                    }
+
+                    Surface(
+                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.6f),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text(
+                                    text = "Host Hardware:",
+                                    fontSize = 11.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Text(
+                                    text = gpuRendererInfo,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    fontFamily = FontFamily.Monospace,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text(
+                                    text = "Linux Driver:",
+                                    fontSize = 11.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Text(
+                                    text = if (enableGpuAcceleration) "Mesa Virpipe (vtest 10.0.2.2)" else "Software (llvmpipe)",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = if (enableGpuAcceleration) Color(0xFF2E7D32) else Color.Gray
+                                )
+                            }
+                        }
+                    }
+
+                    Text(
+                        text = if (enableGpuAcceleration)
+                            "Mali 3D acceleration active: OpenGL ES 3.2 and GL 4.0 calls execute directly on your MediaTek GPU."
+                        else
+                            "GPU acceleration disabled: CPU software rasterizer (llvmpipe) in use.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
+                    )
+
+                    if (status is UmlStatus.Running && enableGpuAcceleration) {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            FilledTonalButton(
+                                onClick = onRunGpuBenchmark,
+                                shape = RoundedCornerShape(10.dp),
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Benchmark 3D", fontSize = 11.sp)
+                            }
+                            FilledTonalButton(
+                                onClick = onShowGpuInfo,
+                                shape = RoundedCornerShape(10.dp),
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Icon(Icons.Default.Info, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("GPU Info", fontSize = 11.sp)
+                            }
+                        }
+                    }
                 }
             }
 
