@@ -28,6 +28,7 @@ import androidx.compose.ui.Modifier
 import com.agy.uml.model.UmlConfiguration
 import com.agy.uml.model.UmlStatus
 import com.agy.uml.service.AssetInstaller
+import com.agy.uml.service.UmlProcessBridge
 import com.agy.uml.service.UmlSessionService
 import com.agy.uml.ui.screens.*
 import com.agy.uml.ui.theme.UmlAndroidTheme
