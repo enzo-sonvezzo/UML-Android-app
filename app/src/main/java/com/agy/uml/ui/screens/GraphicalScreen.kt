@@ -72,9 +72,23 @@ fun GraphicalScreen(
         connectionState = DisplayConnectionState.Connecting
         coroutineScope.launch(Dispatchers.IO) {
             try {
-                val socket = Socket()
-                socket.connect(InetSocketAddress("127.0.0.1", activePort), 4000)
-                socket.tcpNoDelay = true
+                var socket: Socket? = null
+                var lastErr: Exception? = null
+                for (attempt in 1..6) {
+                    try {
+                        val s = Socket()
+                        s.connect(InetSocketAddress("127.0.0.1", activePort), 2000)
+                        s.tcpNoDelay = true
+                        socket = s
+                        break
+                    } catch (e: Exception) {
+                        lastErr = e
+                        delay(600)
+                    }
+                }
+                if (socket == null) {
+                    throw lastErr ?: IllegalStateException("Could not connect to VNC server on port $activePort after multiple attempts")
+                }
                 vncSocket = socket
 
                 val inStream = DataInputStream(socket.getInputStream())
@@ -403,7 +417,7 @@ fun GraphicalScreen(
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Text(
-                                text = "vncserver :0 -geometry $targetResolution -depth 24 -localhost no -SecurityTypes None",
+                                text = "vncserver :0 -geometry $targetResolution -depth 24 -localhost no -SecurityTypes None --I-KNOW-THIS-IS-INSECURE",
                                 fontFamily = FontFamily.Monospace,
                                 fontSize = 12.sp,
                                 color = Color(0xFF61AFEF),
@@ -414,8 +428,8 @@ fun GraphicalScreen(
                         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                             Button(
                                 onClick = {
-                                    // Send 1-tap start command ensuring /etc/hosts has hostname to prevent 'Name or service not known'
-                                    onSendKey("grep -q 'umdebian' /etc/hosts 2>/dev/null || echo '127.0.0.1 localhost umdebian' | sudo tee -a /etc/hosts; vncserver -kill :0 2>/dev/null; vncserver :0 -geometry $targetResolution -depth 24 -localhost no -SecurityTypes None; export DISPLAY=:0 WAYLAND_DISPLAY=wayland-0\n")
+                                    // Send 1-tap start command ensuring /etc/hosts has hostname, fallback xstartup, stale lock cleanup, and TigerVNC bypass
+                                    onSendKey("grep -q 'umdebian' /etc/hosts 2>/dev/null || echo '127.0.0.1 localhost umdebian' >> /etc/hosts; mkdir -p ~/.vnc; [ -f ~/.vnc/xstartup ] || printf '#!/bin/sh\\n[ -r \$HOME/.Xresources ] && xrdb \$HOME/.Xresources\\nx-window-manager & x-session-manager & openbox-session & xfce4-session & xterm &\\n' > ~/.vnc/xstartup && chmod +x ~/.vnc/xstartup; vncserver -kill :0 2>/dev/null; rm -f /tmp/.X0-lock /tmp/.X11-unix/X0 2>/dev/null; vncserver :0 -geometry $targetResolution -depth 24 -localhost no -SecurityTypes None --I-KNOW-THIS-IS-INSECURE; export DISPLAY=:0; echo 'GUI Engine Ready on DISPLAY=:0'\\n")
                                     connectDisplay()
                                 },
                                 shape = RoundedCornerShape(14.dp)

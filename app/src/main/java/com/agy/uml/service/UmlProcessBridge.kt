@@ -43,6 +43,8 @@ object UmlProcessBridge {
             cmdList.add(config.passtPath)
             cmdList.add("--dns")
             cmdList.add("1.1.1.1")
+            cmdList.add("--fwd")
+            cmdList.add("5900,5901,8080,22")
             cmdList.add("--")
         }
 
