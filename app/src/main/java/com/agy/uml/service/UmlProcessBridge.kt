@@ -76,7 +76,6 @@ object UmlProcessBridge {
      */
     fun getGuestStartupScript(anlandPort: Int = 19455, enableGpu: Boolean = true): String {
         val gpuConfig = if (enableGpu) """
-            # Configure Mesa VirGL / Virpipe Hardware Acceleration for Mali GPU
             export GALLIUM_DRIVER=virpipe
             export VTEST_SERVER=10.0.2.2
             export MESA_GL_VERSION_OVERRIDE=4.0
@@ -85,46 +84,46 @@ object UmlProcessBridge {
 
             cat << 'GPUEOF' > /usr/local/bin/uml-gpu-info
 #!/bin/sh
+export DISPLAY=${'$'}{DISPLAY:-:0}
 echo "=== Linux OpenGL / GPU Acceleration Info ==="
-glxinfo -B 2>/dev/null || es2_info 2>/dev/null || echo "mesa-utils not installed: sudo apt install -y mesa-utils"
+glxinfo -B 2>/dev/null || es2_info 2>/dev/null || echo "mesa-utils not installed. Install with: apt update && apt install -y --no-install-recommends mesa-utils"
 GPUEOF
             chmod +x /usr/local/bin/uml-gpu-info 2>/dev/null || true
 
             cat << 'GPUEOF' > /usr/local/bin/uml-gpu-test
 #!/bin/sh
+export DISPLAY=${'$'}{DISPLAY:-:0}
 echo "Starting 3D Hardware Accelerated Gears benchmark..."
-es2gears 2>/dev/null || glxgears 2>/dev/null || echo "mesa-utils-extra not installed: sudo apt install -y mesa-utils-extra"
+es2gears 2>/dev/null || glxgears 2>/dev/null || echo "mesa-utils-extra not installed. Install with: apt update && apt install -y --no-install-recommends mesa-utils-extra"
 GPUEOF
             chmod +x /usr/local/bin/uml-gpu-test 2>/dev/null || true
+
+            cat << 'GPUEOF' > /etc/profile.d/uml-gpu.sh
+export DISPLAY=${'$'}{DISPLAY:-:0}
+export GALLIUM_DRIVER=virpipe
+export VTEST_SERVER=10.0.2.2
+export MESA_GL_VERSION_OVERRIDE=4.0
+export MESA_GLES_VERSION_OVERRIDE=3.2
+export VIRGL_NO_LOG=1
+GPUEOF
         """.trimIndent() else """
-            # Software Rasterizer fallback (llvmpipe)
             export GALLIUM_DRIVER=llvmpipe
+            cat << 'GPUEOF' > /etc/profile.d/uml-gpu.sh
+export DISPLAY=${'$'}{DISPLAY:-:0}
+export GALLIUM_DRIVER=llvmpipe
+GPUEOF
         """.trimIndent()
 
         return """
-            ifconfig vec0 up 2>/dev/null || true
-            udhcpc -i vec0 -n -q -t 4 2>/dev/null || true
-            mkdir -p /sys/fs/cgroup /run /dev/shm /run/user/0
+            (
+            mkdir -p /sys/fs/cgroup /run /dev/shm /run/user/0 /etc/profile.d /usr/local/bin
             mount -t cgroup2 none /sys/fs/cgroup 2>/dev/null || true
             mount -t tmpfs tmpfs /run 2>/dev/null || true
             mount -t tmpfs tmpfs /dev/shm 2>/dev/null || true
-            echo 'nameserver 1.1.1.1' > /etc/resolv.conf
-            grep -q "umdebian" /etc/hosts 2>/dev/null || echo "127.0.0.1 localhost umdebian $(hostname 2>/dev/null)" >> /etc/hosts 2>/dev/null || true
-
-            # Online dynamic ext4 filesystem expansion
+            grep -q "umdebian" /etc/hosts 2>/dev/null || echo "127.0.0.1 localhost umdebian" >> /etc/hosts 2>/dev/null || true
             resize2fs /dev/ubda 2>/dev/null || true
-
-            # D-Bus session bus initialization for Flatpaks and desktop apps
-            dbus-daemon --system --fork 2>/dev/null || true
-            dbus-daemon --session --fork --address=unix:path=/run/user/0/bus 2>/dev/null || true
-            export DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/0/bus
-
             $gpuConfig
-
-            # Bridge guest Wayland/Anland socket to Android Host
-            mkdir -p /tmp/.anland
-            socat UNIX-LISTEN:/tmp/.anland/wayland-0,fork TCP:10.0.2.2:$anlandPort &
-            export WAYLAND_DISPLAY=/tmp/.anland/wayland-0
+            ) >/dev/null 2>&1
         """.trimIndent()
     }
 }

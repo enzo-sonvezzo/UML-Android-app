@@ -246,11 +246,11 @@ class MainActivity : ComponentActivity() {
                                     onToggleGpuAcceleration = { enableGpuAcceleration = it },
                                     gpuRendererInfo = gpuRendererInfo,
                                     onRunGpuBenchmark = {
-                                        sessionService?.sendInput("\numl-gpu-test\n")
+                                        sessionService?.sendInput("\ncommand -v uml-gpu-test >/dev/null && uml-gpu-test || (DISPLAY=:0 es2gears 2>/dev/null || DISPLAY=:0 glxgears 2>/dev/null || echo 'Please install mesa-utils-extra: apt update && apt install -y --no-install-recommends mesa-utils-extra')\n")
                                         currentTab = ScreenTab.TERMINAL
                                     },
                                     onShowGpuInfo = {
-                                        sessionService?.sendInput("\numl-gpu-info\n")
+                                        sessionService?.sendInput("\ncommand -v uml-gpu-info >/dev/null && uml-gpu-info || (DISPLAY=:0 glxinfo -B 2>/dev/null || DISPLAY=:0 es2_info 2>/dev/null || echo 'Please install mesa-utils: apt update && apt install -y --no-install-recommends mesa-utils')\n")
                                         currentTab = ScreenTab.TERMINAL
                                     },
                                     onSelectRootfs = {

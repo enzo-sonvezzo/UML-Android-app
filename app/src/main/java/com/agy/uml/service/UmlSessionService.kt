@@ -85,6 +85,15 @@ class UmlSessionService : Service() {
                 // Launch process watcher and metrics loop
                 launch { watchProcess(pid, startTime) }
 
+                // Inject guest environment, GPU acceleration, and helper scripts once shell is up
+                launch {
+                    delay(2500)
+                    if (umlPid > 0 && ptyMasterFd > 0) {
+                        val startupScript = UmlProcessBridge.getGuestStartupScript(enableGpu = config.enableGpuAcceleration)
+                        sendInput("\n$startupScript\n")
+                    }
+                }
+
             } catch (e: Exception) {
                 _status.value = UmlStatus.Error(e.message ?: "Failed to boot UML kernel")
                 stopForeground(STOP_FOREGROUND_REMOVE)
